@@ -8,14 +8,15 @@ import {
   IconThumbDown,
   IconThumbDownFilled,
   IconThumbUp,
-  IconThumbUpFilled,
-} from "@tabler/icons-react";
-import { FC, memo, useContext, useEffect, useRef, useState } from "react";
-import { useTranslation } from "next-i18next";
+  IconThumbUpFilled
+} from '@tabler/icons-react';
+import { FC, RefObject, memo, useCallback, useContext, useEffect, useRef, useState } from 'react';
+
+import { useTranslation } from 'next-i18next';
 
 import { updateConversation } from "@/utils/app/conversation";
 
-import { Message } from "@/types/chat";
+import { Message, Rating } from '@/types/chat';
 
 import HomeContext from "@/pages/home/home.context";
 
@@ -31,11 +32,12 @@ export interface Props {
   message: Message;
   messageIndex: number;
   onEdit?: (editedMessage: Message) => void;
+  onRate?: (ratedMessage: Message, index: number) => void;
+  onOpenFeedbackForm?: (msgRef: RefObject<HTMLDivElement>) => void;
 }
 
-export const ChatMessage: FC<Props> = memo(
-  ({ message, messageIndex, onEdit }) => {
-    const { t } = useTranslation("chat");
+export const ChatMessage: FC<Props> = memo(({ message, messageIndex, onEdit, onRate, onOpenFeedbackForm }) => {
+  const { t } = useTranslation('chat');
 
     const {
       state: {
@@ -47,14 +49,17 @@ export const ChatMessage: FC<Props> = memo(
       dispatch: homeDispatch,
     } = useContext(HomeContext);
 
-    const [isEditing, setIsEditing] = useState<boolean>(false);
-    const [isTyping, setIsTyping] = useState<boolean>(false);
-    const [messageContent, setMessageContent] = useState(message.content);
-    const [messagedCopied, setMessageCopied] = useState(false);
-    const [gettingFeedback, setGettingFeedback] = useState<boolean>(false);
-    const [rating, setRating] = useState<string | undefined>(undefined);
+  const [isEditing, setIsEditing] = useState<boolean>(false);
+  const [isTyping, setIsTyping] = useState<boolean>(false);
+  const [messageContent, setMessageContent] = useState(message.content);
+  const [messagedCopied, setMessageCopied] = useState(false);
+  const [gettingFeedback, setGettingFeedback] = useState<boolean>(false);
+  const [rating, setRating] = useState<Rating>(message.rating);
 
-    const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const messageRef = useRef<Message>(message);
+
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const selfRef = useRef<HTMLDivElement>(null);
 
     const toggleEditing = () => {
       setIsEditing(!isEditing);
@@ -126,16 +131,19 @@ export const ChatMessage: FC<Props> = memo(
       });
     };
 
-    const handleResponse = (userRating: string) => {
-      if (!rating) {
+  const handleResponse = (userRating: Rating) => {
+      if (rating === 'none' && selectedConversation && onRate) {
+        console.log(selectedConversation);
         setRating(userRating);
 
-        if (userRating === "negative") {
-          console.log("thumbs down");
-          setGettingFeedback(true);
-        } else if (userRating === "positive") {
-          console.log("thumbs up");
-        }
+        onRate({...message, rating: userRating}, messageIndex);
+
+          if (userRating === "negative") {
+            console.log("thumbs down");
+            setGettingFeedback(true);
+          } else if (userRating === "positive") {
+            console.log("thumbs up");
+          }
 
         // Add the API call here
         fetch('http://127.0.0.1:5000/api/feedback', {
@@ -155,41 +163,76 @@ export const ChatMessage: FC<Props> = memo(
         .catch((error) => {
           console.error('Error:', error);
         });
+        }
       }
-    };
 
-    const closeFeedbackForm = () => {
-      setGettingFeedback(false);
-    };
+  const handleCloseFeedbackForm = () => {
+    setGettingFeedback(false);
+  }
+  
+  const handleScrollToFeedbackForm = () => {
+    if (gettingFeedback && selectedConversation && onOpenFeedbackForm) {
+      onOpenFeedbackForm(selfRef);
+    }
+  }
 
-    useEffect(() => {
+  useEffect(() => {
       setMessageContent(message.content);
-    }, [message.content]);
+    }, 
+    [
+      message.content,
+    ]
+  )
 
-    useEffect(() => {
-      if (textareaRef.current) {
-        textareaRef.current.style.height = "inherit";
-        textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+  useEffect(() => {
+    setRating(message.rating);
+  }, 
+  [
+    message.rating,
+  ]
+)
+
+  useEffect(() => {
+      if (selectedConversation?.id) {
+        setGettingFeedback(false);
+        setMessageCopied(false)
       }
-    }, [isEditing]);
+    }, [selectedConversation?.id]
+  );
 
-    return (
-      <div
-        className={`group md:px-4 ${
-          message.role === "assistant"
-            ? "border-b border-black/10 bg-gray-50 text-gray-800 dark:border-gray-900/50 dark:bg-[#444654] dark:text-gray-100"
-            : "border-b border-black/10 bg-white text-gray-800 dark:border-gray-900/50 dark:bg-[#343541] dark:text-gray-100"
-        }`}
-        style={{ overflowWrap: "anywhere" }}
-      >
-        <div className="relative m-auto flex p-4 text-base md:max-w-2xl md:gap-6 md:py-6 lg:max-w-2xl lg:px-0 xl:max-w-3xl">
-          <div className="min-w-[40px] text-right font-bold">
-            {message.role === "assistant" ? (
-              <IconRobot size={30} />
-            ) : (
-              <IconUser size={30} />
-            )}
-          </div>
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'inherit';
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+    }
+  }, [isEditing]);
+
+  useEffect(handleScrollToFeedbackForm,
+    [
+      gettingFeedback,
+      selectedConversation,
+      onOpenFeedbackForm,
+    ]
+  );
+
+  return (
+    <div
+      className={`group md:px-4 ${
+        message.role === 'assistant'
+          ? 'border-b border-black/10 bg-gray-50 text-gray-800 dark:border-gray-900/50 dark:bg-[#444654] dark:text-gray-100'
+          : 'border-b border-black/10 bg-white text-gray-800 dark:border-gray-900/50 dark:bg-[#343541] dark:text-gray-100'
+      }`}
+      style={{ overflowWrap: 'anywhere' }}
+      ref={selfRef}
+    >
+      <div className="relative m-auto flex p-4 text-base md:max-w-2xl md:gap-6 md:py-6 lg:max-w-2xl lg:px-0 xl:max-w-3xl">
+        <div className="min-w-[40px] text-right font-bold">
+          {message.role === 'assistant' ? (
+            <IconRobot size={30} />
+          ) : (
+            <IconUser size={30} />
+          )}
+        </div>
 
           <div className="prose mt-[-2px] w-full dark:prose-invert">
             {message.role === "user" ? (
@@ -343,48 +386,37 @@ export const ChatMessage: FC<Props> = memo(
                         )}
                       </div>
 
-                      {/* THUMBS UP */}
-                      <div className="invisible group-hover:visible focus:visible md:-mr-0 ml-1 md:ml-0 flex flex-col md:flex-row gap-4 md:gap-1 items-center md:items-start justify-end md:justify-start">
-                        <button
-                          className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
-                          onClick={() => handleResponse("positive")}
-                          disabled={!!rating}
-                        >
-                          {rating === "positive" ? (
-                            <IconThumbUpFilled size={20} />
-                          ) : (
-                            <IconThumbUp size={20} />
-                          )}
-                        </button>
-                      </div>
+                {/* THUMBS UP */}
+                <div className="invisible group-hover:visible focus:visible md:-mr-0 ml-1 md:ml-0 flex flex-col md:flex-row gap-4 md:gap-1 items-center md:items-start justify-end md:justify-start">
+                  <button
+                    className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+                    onClick={() => console.log(handleResponse('positive'))}
+                  >
+                    {rating === "positive" ? <IconThumbUpFilled size={20} /> : <IconThumbUp size={20} />}
+                  </button>
+                </div>
 
-                      {/* THUMBS DOWN */}
-                      <div className="invisible group-hover:visible focus:visible md:-mr-0 ml-1 md:ml-0 flex flex-col md:flex-row gap-4 md:gap-1 items-center md:items-start justify-end md:justify-start">
-                        <button
-                          className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
-                          onClick={() => handleResponse("negative")}
-                          disabled={!!rating}
-                        >
-                          {rating === "negative" ? (
-                            <IconThumbDownFilled size={20} />
-                          ) : (
-                            <IconThumbDown size={20} />
-                          )}
-                        </button>
-                      </div>
-                    </div>
-                    {gettingFeedback && <FeedbackForm onClose={closeFeedbackForm} />}
-                  </div>
-                ) : (
-                  <div></div>
-                )}
+
+                {/* THUMBS DOWN */}
+                <div className="invisible group-hover:visible focus:visible md:-mr-0 ml-1 md:ml-0 flex flex-col md:flex-row gap-4 md:gap-1 items-center md:items-start justify-end md:justify-start">
+                  <button
+                    className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+                    onClick={() => console.log(handleResponse('negative'))}
+                  >
+                    {rating === "negative" ? <IconThumbDownFilled size={20} /> : <IconThumbDown size={20} />}
+                  </button>
+                </div>
               </div>
-            )}
-          </div>
+              {gettingFeedback && <FeedbackForm onClose={handleCloseFeedbackForm} messageId={message.id} onOpenFeedbackForm={handleScrollToFeedbackForm}/>}
+            </div>
+          ) : (
+            <div></div>
+          )}
+            </div>
+          )}
         </div>
       </div>
-    );
-  }
-);
-
-ChatMessage.displayName = "ChatMessage";
+    </div>
+  );
+});
+ChatMessage.displayName = 'ChatMessage';
